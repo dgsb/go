@@ -31,6 +31,22 @@ func findExecutable(file string) error {
 // If file contains a slash, it is tried directly and the PATH is not consulted.
 // The result may be an absolute path or a path relative to the current directory.
 func LookPath(file string) (string, error) {
+	bin_sl, err := lookPaths(file, true)
+	if 0 == len(bin_sl) {
+		return "", err
+	}
+	return bin_sl[0], nil
+}
+
+// LookPath searches for all executables binary named file
+// which can be found in the directories named by the PATH environment variable.
+// If file contains a slash, it is tried directly and the PATH is not consulted.
+// The result may be a slice of an absolute path or a path relative to the current directory.
+func LookPaths(file string) ([]string, error) {
+	return lookPaths(file, false)
+}
+
+func lookPaths(file string, stop_at_first bool) ([]string, error) {
 	// NOTE(rsc): I wish we could use the Plan 9 behavior here
 	// (only bypass the path if file begins with / or ./ or ../)
 	// but that would not match all the Unix shells.
@@ -38,23 +54,42 @@ func LookPath(file string) (string, error) {
 	if strings.Contains(file, "/") {
 		err := findExecutable(file)
 		if err == nil {
-			return file, nil
+			return []string{file}, nil
 		}
-		return "", &Error{file, err}
+		return []string{}, &Error{file, err}
 	}
 	pathenv := os.Getenv("PATH")
 	if pathenv == "" {
-		return "", &Error{file, ErrNotFound}
+		return []string{}, &Error{file, ErrNotFound}
 	}
-	for _, dir := range strings.Split(pathenv, ":") {
+
+	dir_slice := strings.Split(pathenv, ":")
+	var ret []string
+	if !stop_at_first {
+		ret = make([]string, 0, len(dir_slice))
+	} else {
+		ret = make([]string, 0, 1)
+	}
+
+	for _, dir := range dir_slice {
 		if dir == "" {
 			// Unix shell semantics: path element "" means "."
 			dir = "."
 		}
 		path := dir + "/" + file
 		if err := findExecutable(path); err == nil {
-			return path, nil
+			ret = append(ret, path)
+			if stop_at_first {
+				break
+			}
 		}
 	}
-	return "", &Error{file, ErrNotFound}
+
+	var err error
+	if 0 == len(ret) {
+		err = &Error{file, ErrNotFound}
+	} else {
+		err = nil
+	}
+	return ret, err
 }

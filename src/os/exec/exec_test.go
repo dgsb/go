@@ -19,8 +19,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -715,5 +717,65 @@ func TestHelperProcess(*testing.T) {
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command %q\n", cmd)
 		os.Exit(2)
+	}
+}
+
+func TestLookPaths(t *testing.T) {
+	tdir := filepath.Dir(os.Args[0])
+	subdirs := []string{
+		"a",
+		"b",
+		"c",
+		"c/d",
+		"c/d/e",
+	}
+	for _, val := range subdirs {
+		d := path.Join(tdir, val)
+		err := os.Mkdir(d, 0700)
+		if nil != err {
+			t.Fatal("Can not mkdir \"" + d + "\" as test setup")
+		}
+	}
+	var newpath string
+	for i := 0; i < len(subdirs); i += 2 {
+		bin := path.Join(tdir, subdirs[i], "bintest")
+		f, err := os.Create(bin)
+		if nil != err {
+			t.Fatal("Can not create \"" + bin + "\"")
+		}
+		err = f.Chmod(0700)
+		if nil != err {
+			t.Fatal("Can not chmod \"" + bin + "\"")
+		}
+		if 0 == i {
+			newpath = path.Join(tdir, subdirs[i])
+		} else {
+			newpath = newpath + ":" + path.Join(tdir, subdirs[i])
+		}
+	}
+	savedpath := os.Getenv("PATH")
+	err := os.Setenv("PATH", newpath)
+	if nil != err {
+		t.Fatal("can not set path to: " + newpath)
+	}
+
+	bins, err := exec.LookPaths("bintest")
+	t.Log("LookPaths returned:", bins, err)
+	if 3 != len(bins) {
+		t.Error("Unexpected length for returned value:", bins)
+	}
+
+	sort.StringSlice(bins).Sort()
+	for i := 0; i < len(subdirs); i += 2 {
+		bpath := path.Join(tdir, subdirs[i], "bintest")
+		idx := sort.StringSlice(bins).Search(bpath)
+		if idx == len(bins) {
+			t.Error("Did not find", bpath, "from", bins)
+		}
+	}
+
+	err = os.Setenv("PATH", savedpath)
+	if nil != err {
+		t.Fatal("Can not restore saved path")
 	}
 }
